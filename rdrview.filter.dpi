@@ -1,0 +1,55 @@
+#!/bin/bash
+# Copyright (c) 2025 Rodrigo Arias Mallo
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+IFS= read -d '>' auth # Ignore auth
+IFS= read -d '>' cmd
+dir="$(dirname $(readlink -f $0))"
+
+case "$cmd" in
+  "<cmd='open_url' url='"*);;
+  *) echo $cmd; exit;;
+esac
+
+url=${cmd#"<cmd='open_url' url='"}
+url=${url%"' '"}
+
+serve_error() {
+  printf "<cmd='start_send_page' url='' '>\n"
+  printf "Content-type: text/plain\r\n\r\n"
+  echo "Error: $@"
+  exit 0
+}
+
+serve_page() {
+  # For debug:
+  #set -x
+  url="$1"
+  url=${url#"rdrview:"}
+
+  tmpfile=$(mktemp "${TMPDIR:-/tmp}/rdrview.XXXXXX")
+
+  curl -L "$url" -o "$tmpfile" || serve_error "cannot download URL: $url"
+
+  printf "<cmd='start_send_page' url='' '>\n"
+  printf "Content-type: text/html\r\n\r\n"
+  echo "<!DOCTYPE html>"
+  echo "<html>"
+  echo "<head>"
+  rdrview -M  < "$tmpfile" | grep '^Title' | sed 's/^Title: //g;s/^/<title>/;s_$_</title>_'
+  echo "<style>"
+  cat "$dir/style.css"
+  echo "</style>"
+  echo "</head>"
+  echo "<body>"
+  rdrview -u "$url" -T title,body -E utf-8 -H < "$tmpfile"
+  echo "</body>"
+  echo "</html>"
+
+  rm -f "$tmpfile"
+}
+
+case "$url" in
+  rdrview:*) serve_page "$url";;
+  *) serve_error "unknown URL: ${url}";;
+esac
